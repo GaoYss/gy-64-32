@@ -75,24 +75,34 @@ class CrudService:
                 detail=f"{field_name} {related_id} does not exist",
             )
 
+    def _initial_statuses(self) -> set[str]:
+        if not self.status_transitions:
+            return set()
+        reachable: set[str] = set()
+        for next_statuses in self.status_transitions.values():
+            reachable.update(next_statuses)
+        return set(self.status_transitions.keys()) - reachable
+
     def _validate_initial_status(self, status_value: str) -> None:
         if not self.status_transitions:
             return
-        valid_statuses = set(self.status_transitions.keys())
-        for next_statuses in self.status_transitions.values():
-            valid_statuses.update(next_statuses)
-        if status_value not in valid_statuses:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid status: {status_value}",
-            )
+        allowed = self._initial_statuses()
+        if not allowed or status_value in allowed:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Status '{status_value}' is not a valid initial status. Available: {sorted(allowed)}",
+        )
 
     def _validate_status_transition(self, old_status: str, new_status: str) -> None:
         if not self.status_transitions:
             return
+        if new_status == old_status:
+            return
         allowed = self.status_transitions.get(old_status, set())
-        if new_status not in allowed and new_status != old_status:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid status transition from {old_status} to {new_status}",
-            )
+        if new_status in allowed:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot transition '{self.status_field}' from '{old_status}' to '{new_status}'. Allowed: {sorted(allowed) or 'none (terminal status)'}",
+        )
